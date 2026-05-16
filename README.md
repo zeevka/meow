@@ -1,36 +1,94 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pantry Paper
 
-## Getting Started
+Pantry Paper is a mobile-first grocery list PWA built with Next.js, Supabase, and Vercel. It supports:
 
-First, run the development server:
+- Magic-link and Google sign-in through Supabase Auth
+- Unlimited personal and shared grocery lists
+- Share-by-link collaboration for signed-in users
+- Realtime multi-device sync with Supabase Realtime
+- Archive-based product suggestions
+- Optimistic updates with a local offline mutation queue
+- English and Hebrew UI with LTR and RTL support
+
+## Stack
+
+- Next.js 16 App Router
+- React 19
+- Tailwind CSS v4
+- Supabase Auth, Postgres, Realtime, and RLS
+- TanStack Query with IndexedDB cache persistence
+- Vercel for hosting
+
+## Local Setup
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Copy the env template:
+
+```bash
+cp .env.example .env.local
+```
+
+3. Fill in:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `NEXT_PUBLIC_SITE_URL`
+
+4. Create a Supabase project and enable:
+
+- Email OTP / magic link auth
+- Google auth provider
+- Realtime
+
+5. Run the SQL migration in the Supabase SQL editor:
+
+File: [supabase/migrations/202605162200_init.sql](/Users/zeevkatz/proj/meow/supabase/migrations/202605162200_init.sql)
+
+6. Start the app:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Supabase Notes
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- The app uses cookie-based auth via `@supabase/ssr`.
+- Shared list membership is handled by the `join_list_by_slug` RPC.
+- Item writes go through RPC functions so optimistic updates, offline replay, and realtime reconciliation all share the same mutation contract.
+- RLS allows members to read and edit only the lists they belong to.
 
-## Learn More
+## Quality Checks
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run lint
+npm run build
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The build script uses `webpack` mode because Turbopack panicked in the local sandbox during verification.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deploying To Vercel
 
-## Deploy on Vercel
+1. Push the repository to GitHub.
+2. Import the project into Vercel.
+3. Add the same three environment variables from `.env.local`.
+4. Make sure the Supabase auth redirect URLs include:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `http://localhost:3000/auth/callback`
+- `https://your-production-domain.com/auth/callback`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+5. Deploy.
+
+## Key Files
+
+- App shell: [src/app/layout.tsx](/Users/zeevkatz/proj/meow/src/app/layout.tsx)
+- Dashboard route: [src/app/page.tsx](/Users/zeevkatz/proj/meow/src/app/page.tsx)
+- Shared list route: [src/app/lists/[shareSlug]/page.tsx](/Users/zeevkatz/proj/meow/src/app/lists/[shareSlug]/page.tsx)
+- List client logic: [src/components/lists/list-client.tsx](/Users/zeevkatz/proj/meow/src/components/lists/list-client.tsx)
+- Supabase helpers: [src/lib/supabase](/Users/zeevkatz/proj/meow/src/lib/supabase)
