@@ -2,9 +2,10 @@ import { notFound, redirect } from "next/navigation";
 
 import { ListClient } from "@/components/lists/list-client";
 import { SetupNotice } from "@/components/setup-notice";
-import { fetchListPayloadBySlug, joinListBySlug } from "@/lib/data/lists";
+import { fetchListForSession } from "@/lib/custom-auth";
 import { hasSupabaseEnv } from "@/lib/env";
-import { createClient } from "@/lib/supabase/server";
+import { isSupabaseSchemaSetupError } from "@/lib/supabase/errors";
+import { getSessionToken } from "@/lib/auth-session";
 
 export const dynamic = "force-dynamic";
 
@@ -20,34 +21,26 @@ export default async function ListPage({ params }: PageProps) {
   }
 
   const { shareSlug } = await params;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const sessionToken = await getSessionToken();
 
-  if (!user) {
+  if (!sessionToken) {
     redirect(`/?next=/lists/${shareSlug}`);
-  }
-
-  try {
-    await joinListBySlug(supabase, shareSlug);
-  } catch {
-    // Ignore here and let the read path decide if the user has access.
   }
 
   let payload;
 
   try {
-    payload = await fetchListPayloadBySlug(
-      supabase,
-      {
-        id: user.id,
-        email: user.email ?? null,
-      },
-      shareSlug,
-    );
-  } catch {
+    payload = await fetchListForSession(shareSlug);
+  } catch (error) {
+    if (isSupabaseSchemaSetupError(error)) {
+      return <SetupNotice mode="database" />;
+    }
+
     notFound();
+  }
+
+  if (!payload) {
+    redirect(`/?next=/lists/${shareSlug}`);
   }
 
   return <ListClient initialData={payload} />;

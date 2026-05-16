@@ -38,7 +38,7 @@ export function Composer({
           .slice(0, 5);
 
   return (
-    <div className="sticky bottom-4 z-20 rounded-[34px] border border-olive/16 bg-paper/94 p-3 shadow-[0_24px_60px_rgba(54,43,33,0.16)] backdrop-blur">
+    <div className="fixed inset-x-4 bottom-4 z-20 mx-auto w-auto max-w-4xl rounded-[34px] border border-olive/16 bg-paper/94 p-3 shadow-[0_24px_60px_rgba(54,43,33,0.16)] backdrop-blur sm:inset-x-8">
       <form
         className="flex items-center gap-3"
         onSubmit={async (event) => {

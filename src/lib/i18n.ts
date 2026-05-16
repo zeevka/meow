@@ -8,11 +8,20 @@ export const copy = {
     tagline: "Shared grocery lists with the feel of a handwritten kitchen note.",
     signInTitle: "Keep the whole house in sync",
     signInBody:
-      "Sign in with a magic link or Google, then open, share, and update lists together in real time.",
+      "Start with your email, then we’ll guide you to password sign-in or account creation.",
     emailLabel: "Email address",
-    magicLink: "Send magic link",
-    google: "Continue with Google",
-    emailSent: "Check your inbox for the sign-in link.",
+    firstNameLabel: "First name",
+    passwordLabel: "Password",
+    continue: "Continue",
+    passwordSignIn: "Sign in with password",
+    createAccount: "Create account",
+    back: "Back",
+    existingAccount: "We found your account. Enter your password to continue.",
+    newAccount: "No account yet. Choose a password to create one.",
+    noPasswordAccount:
+      "This email already exists but does not have a password login yet.",
+    passwordAccountCreated:
+      "Account created. If email confirmation is enabled, check your inbox before signing in.",
     listsTitle: "Your lists",
     createList: "New list",
     renameList: "Rename",
@@ -50,11 +59,20 @@ export const copy = {
     tagline: "רשימות קניות משותפות עם תחושה של פתק מטבח אמיתי.",
     signInTitle: "שומרים את כל הבית מסונכרן",
     signInBody:
-      "התחברו עם קישור למייל או Google, ואז פתחו, שתפו ועדכנו רשימות בזמן אמת.",
+      "מתחילים עם אימייל, ואז נעביר אתכם לכניסה עם סיסמה או ליצירת חשבון.",
     emailLabel: "כתובת אימייל",
-    magicLink: "שליחת קישור התחברות",
-    google: "המשך עם Google",
-    emailSent: "בדקו את המייל שלכם לקישור ההתחברות.",
+    firstNameLabel: "שם פרטי",
+    passwordLabel: "סיסמה",
+    continue: "המשך",
+    passwordSignIn: "כניסה עם סיסמה",
+    createAccount: "יצירת חשבון",
+    back: "חזרה",
+    existingAccount: "מצאנו את החשבון שלכם. הזינו סיסמה כדי להמשיך.",
+    newAccount: "עדיין אין חשבון. בחרו סיסמה כדי ליצור אחד.",
+    noPasswordAccount:
+      "האימייל הזה כבר קיים אבל עדיין אין לו כניסה עם סיסמה.",
+    passwordAccountCreated:
+      "החשבון נוצר. אם אימות מייל פעיל, בדקו את תיבת המייל לפני הכניסה.",
     listsTitle: "הרשימות שלכם",
     createList: "רשימה חדשה",
     renameList: "שינוי שם",
@@ -92,4 +110,3 @@ export const copy = {
 export function getDirection(locale: AppLocale) {
   return locale === "he" ? "rtl" : "ltr";
 }
-

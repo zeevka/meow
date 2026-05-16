@@ -34,13 +34,15 @@ export function ItemRow({
 
   return (
     <div className="relative overflow-hidden rounded-[24px]">
-      <div className="absolute inset-y-0 right-0 flex w-24 items-center justify-center rounded-[24px] bg-tomato text-paper">
-        <Trash2 className="h-4 w-4" />
-      </div>
+      {translateX < 0 ? (
+        <div className="absolute inset-y-0 right-0 flex w-24 items-center justify-center rounded-[24px] bg-tomato text-paper">
+          <Trash2 className="h-4 w-4" />
+        </div>
+      ) : null}
 
       <div
         className={cn(
-          "flex items-center gap-3 rounded-[24px] border border-olive/10 bg-white/88 px-4 py-3 transition",
+          "flex items-center gap-3 rounded-[24px] border border-olive/10 bg-white px-4 py-3 transition",
           isArchived && "opacity-80",
         )}
         style={{ transform: `translateX(${translateX}px)` }}

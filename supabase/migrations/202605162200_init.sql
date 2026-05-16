@@ -19,6 +19,38 @@ begin
 end;
 $$;
 
+create or replace function public.is_list_member(target_list_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from public.list_members
+    where list_id = target_list_id
+      and user_id = auth.uid()
+  );
+$$;
+
+create or replace function public.shares_list_with(target_user_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from public.list_members my_membership
+    join public.list_members shared_membership
+      on shared_membership.list_id = my_membership.list_id
+    where my_membership.user_id = auth.uid()
+      and shared_membership.user_id = target_user_id
+  );
+$$;
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   first_name text,
@@ -419,14 +451,7 @@ for select
 to authenticated
 using (
   id = auth.uid()
-  or exists (
-    select 1
-    from public.list_members my_membership
-    join public.list_members shared_membership
-      on shared_membership.list_id = my_membership.list_id
-    where my_membership.user_id = auth.uid()
-      and shared_membership.user_id = profiles.id
-  )
+  or public.shares_list_with(id)
 );
 
 drop policy if exists "profiles_update_self" on public.profiles;
@@ -443,10 +468,7 @@ on public.lists
 for select
 to authenticated
 using (
-  exists (
-    select 1 from public.list_members
-    where list_id = lists.id and user_id = auth.uid()
-  )
+  public.is_list_member(id)
 );
 
 drop policy if exists "lists_member_update" on public.lists;
@@ -455,16 +477,10 @@ on public.lists
 for update
 to authenticated
 using (
-  exists (
-    select 1 from public.list_members
-    where list_id = lists.id and user_id = auth.uid()
-  )
+  public.is_list_member(id)
 )
 with check (
-  exists (
-    select 1 from public.list_members
-    where list_id = lists.id and user_id = auth.uid()
-  )
+  public.is_list_member(id)
 );
 
 drop policy if exists "list_members_shared_access" on public.list_members;
@@ -473,10 +489,7 @@ on public.list_members
 for select
 to authenticated
 using (
-  exists (
-    select 1 from public.list_members member
-    where member.list_id = list_members.list_id and member.user_id = auth.uid()
-  )
+  public.is_list_member(list_id)
 );
 
 drop policy if exists "list_items_member_select" on public.list_items;
@@ -485,10 +498,7 @@ on public.list_items
 for select
 to authenticated
 using (
-  exists (
-    select 1 from public.list_members member
-    where member.list_id = list_items.list_id and member.user_id = auth.uid()
-  )
+  public.is_list_member(list_id)
 );
 
 drop policy if exists "list_items_member_insert" on public.list_items;
@@ -497,10 +507,7 @@ on public.list_items
 for insert
 to authenticated
 with check (
-  exists (
-    select 1 from public.list_members member
-    where member.list_id = list_items.list_id and member.user_id = auth.uid()
-  )
+  public.is_list_member(list_id)
 );
 
 drop policy if exists "list_items_member_update" on public.list_items;
@@ -509,16 +516,10 @@ on public.list_items
 for update
 to authenticated
 using (
-  exists (
-    select 1 from public.list_members member
-    where member.list_id = list_items.list_id and member.user_id = auth.uid()
-  )
+  public.is_list_member(list_id)
 )
 with check (
-  exists (
-    select 1 from public.list_members member
-    where member.list_id = list_items.list_id and member.user_id = auth.uid()
-  )
+  public.is_list_member(list_id)
 );
 
 grant execute on function public.create_list(text, text) to authenticated;
@@ -529,6 +530,8 @@ grant execute on function public.update_list_item_name(uuid, text, text, uuid) t
 grant execute on function public.archive_list_item(uuid, text, uuid) to authenticated;
 grant execute on function public.restore_archived_item(uuid, numeric, text, uuid) to authenticated;
 grant execute on function public.delete_list_item(uuid, text, uuid) to authenticated;
+grant execute on function public.is_list_member(uuid) to authenticated;
+grant execute on function public.shares_list_with(uuid) to authenticated;
 
 do $$
 begin

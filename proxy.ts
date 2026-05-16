@@ -1,16 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { hasSupabaseEnv } from "@/lib/env";
-import { updateSession } from "@/lib/supabase/proxy";
-
 export async function proxy(request: NextRequest) {
-  if (!hasSupabaseEnv()) {
-    return NextResponse.next({
-      request,
-    });
-  }
-
-  return updateSession(request);
+  return NextResponse.next({
+    request,
+  });
 }
 
 export const config = {

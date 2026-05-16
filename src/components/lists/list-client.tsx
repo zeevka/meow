@@ -3,12 +3,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
-  CheckCircle2,
+  ArrowLeft,
   Copy,
   LoaderCircle,
   Signal,
   SignalZero,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { CollaboratorChip } from "@/components/lists/collaborator-chip";
@@ -21,8 +22,8 @@ import {
   archiveListItem,
   deleteListItem,
   fetchListPayloadBySlug,
-  joinListBySlug,
   listQueryKey,
+  renameList,
   replayOfflineMutation,
   restoreArchivedItem,
   updateListItemName,
@@ -36,7 +37,6 @@ import {
 } from "@/lib/offline-queue";
 import { copy, getDirection, type AppLocale } from "@/lib/i18n";
 import { normalizeProductName } from "@/lib/normalize";
-import { createClient } from "@/lib/supabase/client";
 import type { ListItemRecord, ListPayload, OfflineMutation } from "@/lib/types";
 import { isNetworkLikeError } from "@/lib/utils";
 
@@ -46,10 +46,11 @@ type ListClientProps = {
 
 export function ListClient({ initialData }: ListClientProps) {
   const queryClient = useQueryClient();
-  const [supabase] = useState(() => createClient());
   const [copied, setCopied] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [archiveOpen, setArchiveOpen] = useState(true);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
   const [online, setOnline] = useState(
     typeof window === "undefined" ? true : window.navigator.onLine,
   );
@@ -60,12 +61,8 @@ export function ListClient({ initialData }: ListClientProps) {
   const { data, refetch, isFetching } = useQuery({
     queryKey: listQueryKey(initialData.list.share_slug),
     initialData,
-    queryFn: async () =>
-      fetchListPayloadBySlug(
-        supabase,
-        initialData.viewer,
-        initialData.list.share_slug,
-      ),
+    queryFn: async () => fetchListPayloadBySlug(initialData.list.share_slug),
+    refetchInterval: 5000,
   });
 
   const locale: AppLocale = data.profile?.locale === "he" ? "he" : "en";
@@ -114,7 +111,7 @@ export function ListClient({ initialData }: ListClientProps) {
         }
 
         try {
-          await replayOfflineMutation(supabase, mutation);
+          await replayOfflineMutation(mutation);
           removeOfflineMutation(data.list.share_slug, mutation.id);
         } catch (error) {
           if (isNetworkLikeError(error)) {
@@ -135,35 +132,7 @@ export function ListClient({ initialData }: ListClientProps) {
     return () => {
       cancelled = true;
     };
-  }, [data.list.share_slug, online, refetch, supabase]);
-
-  useEffect(() => {
-    const channel = supabase
-      .channel(`list:${data.list.id}`)
-      .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "lists",
-        filter: `id=eq.${data.list.id}`,
-      }, () => void refetch())
-      .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "list_members",
-        filter: `list_id=eq.${data.list.id}`,
-      }, () => void refetch())
-      .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "list_items",
-        filter: `list_id=eq.${data.list.id}`,
-      }, () => void refetch())
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [data.list.id, refetch, supabase]);
+  }, [data.list.share_slug, online, refetch]);
 
   async function runQueuedMutation(
     optimistic: (current: ListPayload) => ListPayload,
@@ -227,7 +196,7 @@ export function ListClient({ initialData }: ListClientProps) {
           queued: !online,
         }),
       () =>
-        addListItem(supabase, {
+        addListItem({
           listId: data.list.id,
           itemId,
           name,
@@ -264,7 +233,7 @@ export function ListClient({ initialData }: ListClientProps) {
           _queued: !online,
         })),
       () =>
-        updateListItemName(supabase, {
+        updateListItemName({
           itemId,
           name,
           deviceId,
@@ -297,7 +266,7 @@ export function ListClient({ initialData }: ListClientProps) {
           _queued: !online,
         })),
       () =>
-        archiveListItem(supabase, {
+        archiveListItem({
           itemId,
           deviceId,
           mutationId,
@@ -350,7 +319,7 @@ export function ListClient({ initialData }: ListClientProps) {
           _queued: !online,
         })),
       () =>
-        restoreArchivedItem(supabase, {
+        restoreArchivedItem({
           itemId: item.id,
           sortIndex,
           deviceId,
@@ -376,7 +345,7 @@ export function ListClient({ initialData }: ListClientProps) {
     await runQueuedMutation(
       (current) => applyOptimisticItemChange(current, itemId, () => null),
       () =>
-        deleteListItem(supabase, {
+        deleteListItem({
           itemId,
           deviceId,
           mutationId,
@@ -403,37 +372,46 @@ export function ListClient({ initialData }: ListClientProps) {
 
   async function handleLocaleToggle() {
     const nextLocale = locale === "en" ? "he" : "en";
-    await updateProfileLocale(supabase, nextLocale);
+    await updateProfileLocale(nextLocale);
     queryClient.setQueryData<ListPayload>(queryKey, {
       ...data,
       profile: data.profile ? { ...data.profile, locale: nextLocale } : data.profile,
     });
   }
 
-  async function handleJoinRetry() {
-    await joinListBySlug(supabase, data.list.share_slug);
-    await refetch();
+  async function handleRenameList() {
+    const nextTitle = titleDraft.trim();
+    setTitleEditing(false);
+
+    if (!nextTitle || nextTitle === data.list.title) {
+      return;
+    }
+
+    const previous = queryClient.getQueryData<ListPayload>(queryKey) ?? data;
+    queryClient.setQueryData<ListPayload>(queryKey, {
+      ...previous,
+      list: { ...previous.list, title: nextTitle },
+    });
+
+    try {
+      await renameList(data.list.id, nextTitle);
+      await refetch();
+    } catch (error) {
+      queryClient.setQueryData(queryKey, previous);
+      setNotice(error instanceof Error ? error.message : "Unable to rename list");
+    }
   }
 
   return (
     <div dir={getDirection(locale)} className="page-shell">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-5 py-5 sm:px-8 lg:flex-row lg:items-start lg:gap-10">
-        <main className="w-full lg:max-w-[48rem]">
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 py-5 pb-32 sm:px-8">
+        <main className="w-full">
           <section className="paper-panel p-5 sm:p-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="eyebrow">{t.appName}</span>
-                  <span className="rounded-full bg-herb/12 px-3 py-1 text-xs font-medium text-herb">
-                    {data.list.is_link_sharing_enabled ? t.shareEnabled : "Private"}
-                  </span>
-                </div>
-                <h1 className="display-title mt-3 truncate text-4xl sm:text-5xl">
-                  {data.list.title}
-                </h1>
-              </div>
-
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+              <div className="flex items-center gap-2 sm:order-2">
+                <Link href="/" className="icon-button" aria-label={t.back}>
+                  <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
+                </Link>
                 <button type="button" className="icon-button" onClick={handleLocaleToggle}>
                   {locale === "en" ? "עב" : "EN"}
                 </button>
@@ -441,6 +419,48 @@ export function ListClient({ initialData }: ListClientProps) {
                   <Copy className="h-4 w-4" />
                   {copied ? t.copied : t.shareList}
                 </button>
+              </div>
+
+              <div className="min-w-0 sm:order-1 sm:flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="eyebrow">{t.appName}</span>
+                  <span className="rounded-full bg-herb/12 px-3 py-1 text-xs font-medium text-herb">
+                    {data.list.is_link_sharing_enabled ? t.shareEnabled : "Private"}
+                  </span>
+                </div>
+                {titleEditing ? (
+                  <form
+                    className="mt-3"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleRenameList();
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      value={titleDraft}
+                      onChange={(event) => setTitleDraft(event.target.value)}
+                      onBlur={() => void handleRenameList()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          setTitleEditing(false);
+                        }
+                      }}
+                      className="display-title w-full bg-transparent text-4xl break-words outline-none sm:text-5xl"
+                    />
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTitleDraft(data.list.title);
+                      setTitleEditing(true);
+                    }}
+                    className="display-title mt-3 w-full break-words text-start text-4xl sm:text-5xl"
+                  >
+                    {data.list.title}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -555,22 +575,6 @@ export function ListClient({ initialData }: ListClientProps) {
             </div>
           ) : null}
         </main>
-
-        <aside className="w-full lg:max-w-[20rem]">
-          <section className="paper-panel p-6">
-            <h2 className="section-title">List notes</h2>
-            <div className="mt-5 space-y-3 text-sm text-ink/70">
-              <p className="inline-flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-herb" />
-                {data.members.length} collaborators connected
-              </p>
-              <p>{t.archivedHint}</p>
-            </div>
-            <button className="btn-ghost mt-5" type="button" onClick={handleJoinRetry}>
-              Refresh membership
-            </button>
-          </section>
-        </aside>
       </div>
     </div>
   );
