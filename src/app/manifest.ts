@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Pantry Paper",
-    short_name: "Pantry",
+    name: "MEOW",
+    short_name: "MEOW",
     description: "Shared grocery lists with realtime sync and a warm editorial feel.",
     start_url: "/",
     display: "standalone",

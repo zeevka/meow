@@ -1,6 +1,6 @@
 "use client";
 
-import { ArchiveRestore, CheckCheck, LoaderCircle, X } from "lucide-react";
+import { ArchiveRestore, CheckCheck, Eraser, LoaderCircle, X } from "lucide-react";
 import { useEffect } from "react";
 
 import { copy, type AppLocale } from "@/lib/i18n";
@@ -14,11 +14,13 @@ type SettingsSheetProps = {
   savingModel: boolean;
   activeCount: number;
   archivedCount: number;
-  busyBulk: "archive" | "restore" | null;
+  aiCategorizedCount: number;
+  busyBulk: "archive" | "restore" | "clear" | null;
   onClose: () => void;
   onSelectModel: (model: ClassifierModel) => void;
   onMarkAllBought: () => void;
   onMarkAllNotBought: () => void;
+  onClearCategories: () => void;
 };
 
 const MODEL_LABEL_KEYS: Record<
@@ -37,11 +39,13 @@ export function SettingsSheet({
   savingModel,
   activeCount,
   archivedCount,
+  aiCategorizedCount,
   busyBulk,
   onClose,
   onSelectModel,
   onMarkAllBought,
   onMarkAllNotBought,
+  onClearCategories,
 }: SettingsSheetProps) {
   const t = copy[locale];
 
@@ -135,6 +139,23 @@ export function SettingsSheet({
               );
             })}
           </div>
+
+          <button
+            type="button"
+            className={cn(
+              "btn-secondary mt-3 w-full justify-center min-h-12",
+              aiCategorizedCount === 0 && "opacity-60",
+            )}
+            disabled={busyBulk !== null || aiCategorizedCount === 0}
+            onClick={onClearCategories}
+          >
+            {busyBulk === "clear" ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+            ) : (
+              <Eraser className="h-4 w-4" />
+            )}
+            {t.clearCategories}
+          </button>
         </section>
 
         <section className="mt-6">

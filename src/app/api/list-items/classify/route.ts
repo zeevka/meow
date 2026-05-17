@@ -20,20 +20,15 @@ const requestSchema = z.object({
 const classifierOutputSchema = z.object({
   classifications: z.array(
     z.object({
-      id: z.string().uuid(),
+      i: z.number().int().nonnegative(),
       category: z.string(),
       customLabel: z.string().max(24).optional(),
     }),
   ),
 });
 
-type ClassifierInputItem = {
-  id: string;
-  name: string;
-};
-
 async function callNvidiaClassifier(
-  items: ClassifierInputItem[],
+  names: string[],
   modelChoice: ClassifierModel,
 ) {
   if (!process.env.NVIDIA_API_KEY) {
@@ -41,7 +36,7 @@ async function callNvidiaClassifier(
     throw new Error("Classifier is not configured (missing NVIDIA_API_KEY)");
   }
 
-  const allowedIds = new Set(items.map((item) => item.id));
+  const indexedItems = names.map((name, i) => ({ i, name }));
   const categoryDescriptions = [
     "dairy — EN: milk, cheese, yogurt, butter, cream, cottage / HE: חלב, גבינה, יוגורט, חמאה, שמנת, קוטג'",
     "produce — EN: fruits, vegetables, herbs, salad greens / HE: ירקות, פירות, עשבי תיבול, עגבניות, מלפפון, בצל, תפוחים, בננה, חסה, פטרוזיליה, לימון, גזר, תפוח אדמה",
@@ -60,7 +55,7 @@ async function callNvidiaClassifier(
   const isNemotron = model.includes("nemotron");
   const timeoutMs = Number(process.env.NVIDIA_TIMEOUT_MS || 60_000);
   console.log(
-    `[classify] calling NVIDIA NIM model=${model} reasoning=${isNemotron ? "off" : "n/a"} timeout=${timeoutMs}ms items=${items.length}`,
+    `[classify] calling NVIDIA NIM model=${model} reasoning=${isNemotron ? "off" : "n/a"} timeout=${timeoutMs}ms items=${names.length}`,
   );
 
   const startedAt = Date.now();
@@ -95,7 +90,8 @@ async function callNvidiaClassifier(
               categoryDescriptions,
               "",
               "Return exactly this JSON shape and nothing else:",
-              '{"classifications":[{"id":"<uuid>","category":"<slug>","customLabel":"<short label, only when category=other>"}]}',
+              '{"classifications":[{"i":<index>,"category":"<slug>","customLabel":"<short label, only when category=other>"}]}',
+              'The "i" field MUST be the integer index of the item from the array below. Return one classification per item.',
               "",
               "Examples (input → category):",
               '- "אקונומיקה" → household (Hebrew word for bleach)',
@@ -110,7 +106,7 @@ async function callNvidiaClassifier(
               '- "Computer" → other, customLabel "Computer"',
               "",
               "Items to classify:",
-              JSON.stringify(items),
+              JSON.stringify(indexedItems),
             ].join("\n"),
           },
         ],
@@ -163,7 +159,13 @@ async function callNvidiaClassifier(
     throw new Error("Classifier response did not match expected schema");
   }
 
-  const filtered = parsed.data.classifications.filter((entry) => allowedIds.has(entry.id));
+  const seen = new Set<number>();
+  const filtered = parsed.data.classifications.filter((entry) => {
+    if (entry.i >= names.length) return false;
+    if (seen.has(entry.i)) return false;
+    seen.add(entry.i);
+    return true;
+  });
   console.log(`[classify] returning ${filtered.length} valid classification(s) out of ${parsed.data.classifications.length}`);
   return filtered;
 }
@@ -238,7 +240,7 @@ export async function POST(request: Request) {
         : "smart";
 
     const classifications = await callNvidiaClassifier(
-      unclassified.map((item) => ({ id: item.id, name: item.name })),
+      unclassified.map((item) => item.name),
       modelChoice,
     );
 
@@ -249,7 +251,7 @@ export async function POST(request: Request) {
         : "other";
 
       return {
-        id: classification.id,
+        id: unclassified[classification.i].id,
         category,
         customLabel:
           category === "other"

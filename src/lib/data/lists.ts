@@ -171,6 +171,13 @@ export async function setItemCategory(params: {
   });
 }
 
+export async function clearListItemCategories(shareSlug: string) {
+  return apiJson<{ updated: ListItemRecord[] }>("/api/list-items/clear-categories", {
+    method: "POST",
+    body: JSON.stringify({ shareSlug }),
+  });
+}
+
 export async function classifyListItems(shareSlug: string) {
   return apiJson<{ updated: ListItemRecord[] }>("/api/list-items/classify", {
     method: "POST",

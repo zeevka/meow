@@ -4,7 +4,7 @@ export type AppLocale = (typeof locales)[number];
 
 export const copy = {
   en: {
-    appName: "Pantry Paper",
+    appName: "MEOW",
     tagline: "Shared grocery lists with the feel of a handwritten kitchen note.",
     signInTitle: "Keep the whole house in sync",
     signInBody:
@@ -90,11 +90,15 @@ export const copy = {
     bulkRestoreDone: "Brought everything back to To buy.",
     bulkArchiveEmpty: "There is nothing on the list to mark.",
     bulkRestoreEmpty: "There is nothing in Bought to restore.",
+    clearCategories: "Clear AI categories",
+    clearCategoriesConfirm: "Reset every AI-set category? Manual picks stay.",
+    clearCategoriesDone: "Cleared AI categories.",
+    clearCategoriesEmpty: "No AI categories to clear.",
     saveSettingsError: "Could not save settings",
     bulkError: "That action could not finish",
   },
   he: {
-    appName: "Pantry Paper",
+    appName: "MEOW",
     tagline: "רשימות קניות משותפות עם תחושה של פתק מטבח אמיתי.",
     signInTitle: "שומרים את כל הבית מסונכרן",
     signInBody:
@@ -180,6 +184,10 @@ export const copy = {
     bulkRestoreDone: "כל המוצרים חזרו לרשימת הקניות.",
     bulkArchiveEmpty: "אין מוצרים פעילים לסימון.",
     bulkRestoreEmpty: "אין מוצרים שנקנו להחזרה.",
+    clearCategories: "ניקוי קטגוריות AI",
+    clearCategoriesConfirm: "לאפס את כל הקטגוריות שה־AI הציע? בחירות ידניות יישארו.",
+    clearCategoriesDone: "הקטגוריות שה־AI הציע נוקו.",
+    clearCategoriesEmpty: "אין קטגוריות AI לניקוי.",
     saveSettingsError: "לא הצלחנו לשמור את ההגדרות",
     bulkError: "הפעולה לא הושלמה",
   },

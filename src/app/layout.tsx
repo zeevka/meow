@@ -4,7 +4,7 @@ import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pantry Paper",
+  title: "MEOW",
   description: "A warm, shared grocery list PWA for phones and desktops.",
 };
 

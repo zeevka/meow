@@ -28,6 +28,7 @@ import {
   bulkArchiveActiveItems,
   bulkRestoreArchivedItems,
   classifyListItems,
+  clearListItemCategories,
   deleteListItem,
   fetchListPayloadBySlug,
   listQueryKey,
@@ -72,7 +73,7 @@ export function ListClient({ initialData }: ListClientProps) {
   const [isClassifying, setIsClassifying] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
-  const [busyBulk, setBusyBulk] = useState<"archive" | "restore" | null>(null);
+  const [busyBulk, setBusyBulk] = useState<"archive" | "restore" | "clear" | null>(null);
   const [online, setOnline] = useState(
     typeof window === "undefined" ? true : window.navigator.onLine,
   );
@@ -131,6 +132,12 @@ export function ListClient({ initialData }: ListClientProps) {
         left.archived_at ?? left.updated_at,
       ),
     );
+  const aiCategorizedCount = data.items.filter(
+    (item) =>
+      item.deleted_at == null &&
+      item.category != null &&
+      item.category_source === "ai",
+  ).length;
 
   useEffect(() => {
     const fromStorage = window.localStorage.getItem(sortStorageKey);
@@ -649,6 +656,51 @@ export function ListClient({ initialData }: ListClientProps) {
     }
   }
 
+  async function handleClearCategories() {
+    if (busyBulk !== null) {
+      return;
+    }
+
+    if (aiCategorizedCount === 0) {
+      setNotice(t.clearCategoriesEmpty);
+      return;
+    }
+
+    if (!window.confirm(t.clearCategoriesConfirm)) {
+      return;
+    }
+
+    const previous = queryClient.getQueryData<ListPayload>(queryKey) ?? data;
+    queryClient.setQueryData<ListPayload>(queryKey, {
+      ...previous,
+      items: previous.items.map((item) =>
+        item.deleted_at == null &&
+        item.category != null &&
+        item.category_source === "ai"
+          ? {
+              ...item,
+              category: null,
+              category_source: null,
+              custom_category_label: null,
+              _optimistic: true,
+            }
+          : item,
+      ),
+    });
+
+    setBusyBulk("clear");
+    try {
+      await clearListItemCategories(data.list.share_slug);
+      await refetch();
+      setNotice(t.clearCategoriesDone);
+    } catch (error) {
+      queryClient.setQueryData(queryKey, previous);
+      setNotice(error instanceof Error ? error.message : t.bulkError);
+    } finally {
+      setBusyBulk(null);
+    }
+  }
+
   function handleSortModeChange(next: SortMode) {
     setSortMode(next);
     window.localStorage.setItem(sortStorageKey, next);
@@ -857,11 +909,13 @@ export function ListClient({ initialData }: ListClientProps) {
         savingModel={savingModel}
         activeCount={activeItems.length}
         archivedCount={archivedItems.length}
+        aiCategorizedCount={aiCategorizedCount}
         busyBulk={busyBulk}
         onClose={() => setSettingsOpen(false)}
         onSelectModel={handleSelectModel}
         onMarkAllBought={handleMarkAllBought}
         onMarkAllNotBought={handleMarkAllNotBought}
+        onClearCategories={handleClearCategories}
       />
     </div>
   );

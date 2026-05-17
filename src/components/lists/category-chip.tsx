@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   CATEGORY_SLUGS,
@@ -18,26 +19,65 @@ type CategoryChipProps = {
   onPick: (category: CategorySlug | null) => Promise<void> | void;
 };
 
+const MENU_WIDTH = 224;
+
 export function CategoryChip({ item, locale, onPick }: CategoryChipProps) {
   const t = copy[locale];
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const display = getCategoryDisplay(item, t);
+  const isRtl = locale === "he";
+
+  useLayoutEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function updatePosition() {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+
+      const margin = 8;
+      const left = isRtl
+        ? Math.max(margin, rect.right - MENU_WIDTH)
+        : Math.min(window.innerWidth - MENU_WIDTH - margin, rect.left);
+      setCoords({ top: rect.bottom + margin, left });
+    }
+
+    updatePosition();
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [open, isRtl]);
 
   useEffect(() => {
+    if (!open) {
+      return;
+    }
+
     function handleOutsideClick(event: MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
       }
+      setOpen(false);
     }
 
     window.addEventListener("mousedown", handleOutsideClick);
     return () => window.removeEventListener("mousedown", handleOutsideClick);
-  }, []);
+  }, [open]);
 
   return (
-    <div className="relative mt-1.5 w-fit" ref={rootRef}>
+    <div className="mt-1.5 w-fit">
       <button
+        ref={buttonRef}
         type="button"
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
@@ -52,49 +92,61 @@ export function CategoryChip({ item, locale, onPick }: CategoryChipProps) {
         {display ? display.label : t.pickCategory}
       </button>
 
-      {open ? (
-        <div
-          className="absolute top-full z-30 mt-2 w-56 rounded-2xl border border-olive/14 bg-white p-2 shadow-[0_14px_32px_rgba(54,43,33,0.14)]"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <p className="px-2 pb-1 text-xs font-medium text-ink/56">{t.pickCategory}</p>
-          <div className="space-y-1">
-            {CATEGORY_SLUGS.map((slug) => {
-              const labelKey = categoryMeta[slug].labelKey as keyof typeof t;
-              return (
+      {open && coords && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={menuRef}
+              dir={isRtl ? "rtl" : "ltr"}
+              style={{
+                position: "fixed",
+                top: coords.top,
+                left: coords.left,
+                width: MENU_WIDTH,
+                zIndex: 50,
+              }}
+              className="rounded-2xl border border-olive/14 bg-white p-2 shadow-[0_14px_32px_rgba(54,43,33,0.14)]"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <p className="px-2 pb-1 text-xs font-medium text-ink/56">{t.pickCategory}</p>
+              <div className="space-y-1">
+                {CATEGORY_SLUGS.map((slug) => {
+                  const labelKey = categoryMeta[slug].labelKey as keyof typeof t;
+                  return (
+                    <button
+                      key={slug}
+                      type="button"
+                      className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-start text-sm text-ink/82 transition hover:bg-olive/8"
+                      onClick={async () => {
+                        await onPick(slug);
+                        setOpen(false);
+                      }}
+                    >
+                      <span>{t[labelKey]}</span>
+                      <span
+                        className={cn(
+                          "h-2.5 w-2.5 rounded-full",
+                          slug === "other" ? "border border-olive/26 bg-paper" : "bg-olive/30",
+                        )}
+                      />
+                    </button>
+                  );
+                })}
                 <button
-                  key={slug}
                   type="button"
-                  className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-start text-sm text-ink/82 transition hover:bg-olive/8"
+                  className="flex w-full rounded-xl px-2 py-2 text-start text-sm text-tomato transition hover:bg-tomato/8"
                   onClick={async () => {
-                    await onPick(slug);
+                    await onPick(null);
                     setOpen(false);
                   }}
                 >
-                  <span>{t[labelKey]}</span>
-                  <span
-                    className={cn(
-                      "h-2.5 w-2.5 rounded-full",
-                      slug === "other" ? "border border-olive/26 bg-paper" : "bg-olive/30",
-                    )}
-                  />
+                  {t.clearCategory}
                 </button>
-              );
-            })}
-            <button
-              type="button"
-              className="flex w-full rounded-xl px-2 py-2 text-start text-sm text-tomato transition hover:bg-tomato/8"
-              onClick={async () => {
-                await onPick(null);
-                setOpen(false);
-              }}
-            >
-              {t.clearCategory}
-            </button>
-          </div>
-        </div>
-      ) : null}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
