@@ -4,7 +4,6 @@ import { ArrowLeft, Loader2, LockKeyhole, Mail, ShoppingBasket } from "lucide-re
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { hasSupabaseEnv } from "@/lib/env";
 import { apiJson } from "@/lib/http";
 import { copy, getDirection, type AppLocale } from "@/lib/i18n";
 
@@ -33,10 +32,6 @@ export function AuthPanel({
 
   async function handleEmailLookup(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (!hasSupabaseEnv()) {
-      return;
-    }
 
     try {
       setPending("lookup");
@@ -74,10 +69,6 @@ export function AuthPanel({
   async function handlePasswordSignIn(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!hasSupabaseEnv()) {
-      return;
-    }
-
     try {
       setPending("password");
       setMessage(null);
@@ -101,10 +92,6 @@ export function AuthPanel({
 
   async function handleCreateAccount(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (!hasSupabaseEnv()) {
-      return;
-    }
 
     try {
       setPending("signup");
@@ -184,7 +171,7 @@ export function AuthPanel({
 
           <button
             type="submit"
-            disabled={!hasSupabaseEnv() || pending !== null}
+            disabled={pending !== null}
             className="btn-primary"
           >
             {pending === "lookup" ? (
@@ -245,7 +232,7 @@ export function AuthPanel({
           <div className="flex flex-col gap-3 sm:flex-row">
             <button
               type="submit"
-              disabled={!hasSupabaseEnv() || pending !== null}
+              disabled={pending !== null}
               className="btn-primary"
             >
               {pending === "password" || pending === "signup" ? (

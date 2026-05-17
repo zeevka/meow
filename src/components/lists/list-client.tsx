@@ -6,27 +6,37 @@ import {
   ArrowLeft,
   Copy,
   LoaderCircle,
+  Settings,
   Signal,
   SignalZero,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { ClassifyButton } from "@/components/lists/classify-button";
 import { CollaboratorChip } from "@/components/lists/collaborator-chip";
 import { Composer } from "@/components/lists/composer";
 import { ItemRow } from "@/components/lists/item-row";
+import { SettingsSheet } from "@/components/lists/settings-sheet";
+import { SortToggle, type SortMode } from "@/components/lists/sort-toggle";
+import { CATEGORY_SLUGS } from "@/lib/categories";
 import {
   addListItem,
   applyOptimisticAdd,
   applyOptimisticItemChange,
   archiveListItem,
+  bulkArchiveActiveItems,
+  bulkRestoreArchivedItems,
+  classifyListItems,
   deleteListItem,
   fetchListPayloadBySlug,
   listQueryKey,
   renameList,
   replayOfflineMutation,
   restoreArchivedItem,
+  setItemCategory,
   updateListItemName,
+  updateListSettings,
   updateProfileLocale,
 } from "@/lib/data/lists";
 import {
@@ -37,12 +47,19 @@ import {
 } from "@/lib/offline-queue";
 import { copy, getDirection, type AppLocale } from "@/lib/i18n";
 import { normalizeProductName } from "@/lib/normalize";
-import type { ListItemRecord, ListPayload, OfflineMutation } from "@/lib/types";
+import type {
+  ClassifierModel,
+  ListItemRecord,
+  ListPayload,
+  OfflineMutation,
+} from "@/lib/types";
 import { isNetworkLikeError } from "@/lib/utils";
 
 type ListClientProps = {
   initialData: ListPayload;
 };
+
+const sortStorageKey = "pantry-sort-mode";
 
 export function ListClient({ initialData }: ListClientProps) {
   const queryClient = useQueryClient();
@@ -51,6 +68,11 @@ export function ListClient({ initialData }: ListClientProps) {
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("time");
+  const [isClassifying, setIsClassifying] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [savingModel, setSavingModel] = useState(false);
+  const [busyBulk, setBusyBulk] = useState<"archive" | "restore" | null>(null);
   const [online, setOnline] = useState(
     typeof window === "undefined" ? true : window.navigator.onLine,
   );
@@ -69,6 +91,39 @@ export function ListClient({ initialData }: ListClientProps) {
   const t = copy[locale];
   const queryKey = listQueryKey(data.list.share_slug);
   const activeItems = data.items.filter((item) => item.status === "active");
+  const displayItems = useMemo(() => {
+    if (sortMode === "time") {
+      return [...activeItems].sort((left, right) => left.sort_index - right.sort_index);
+    }
+
+    const order = [...CATEGORY_SLUGS, null] as const;
+    const fallback = order.indexOf("other");
+    const nullIndex = order.indexOf(null);
+
+    function getRank(category: string | null) {
+      if (category === null) {
+        return nullIndex;
+      }
+
+      const rank = order.indexOf(category as (typeof order)[number]);
+      if (rank >= 0) {
+        return rank;
+      }
+
+      return fallback;
+    }
+
+    return [...activeItems].sort((left, right) => {
+      const leftRank = getRank(left.category);
+      const rightRank = getRank(right.category);
+
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+
+      return left.sort_index - right.sort_index;
+    });
+  }, [activeItems, sortMode]);
   const archivedItems = [...data.items]
     .filter((item) => item.status === "archived")
     .sort((left, right) =>
@@ -76,6 +131,15 @@ export function ListClient({ initialData }: ListClientProps) {
         left.archived_at ?? left.updated_at,
       ),
     );
+
+  useEffect(() => {
+    const fromStorage = window.localStorage.getItem(sortStorageKey);
+    if (fromStorage === "time" || fromStorage === "category") {
+      window.setTimeout(() => {
+        setSortMode(fromStorage);
+      }, 0);
+    }
+  }, []);
 
   useEffect(() => {
     function updateOnlineState() {
@@ -402,6 +466,194 @@ export function ListClient({ initialData }: ListClientProps) {
     }
   }
 
+  async function handlePickCategory(itemId: string, category: string | null) {
+    const targetItem = data.items.find((item) => item.id === itemId);
+    const mutationId = crypto.randomUUID();
+    const deviceId = getDeviceId();
+    const customLabel =
+      category === "other" ? (targetItem?.custom_category_label ?? null) : null;
+
+    await runQueuedMutation(
+      (current) =>
+        applyOptimisticItemChange(current, itemId, (item) => ({
+          ...item,
+          category,
+          custom_category_label: customLabel,
+          category_source: category === null ? null : "manual",
+          _optimistic: true,
+          _queued: !online,
+        })),
+      () =>
+        setItemCategory({
+          itemId,
+          category,
+          customLabel,
+          deviceId,
+          mutationId,
+        }),
+      {
+        id: crypto.randomUUID(),
+        shareSlug: data.list.share_slug,
+        kind: "setCategory",
+        itemId,
+        category,
+        customLabel,
+        deviceId,
+        mutationId,
+        createdAt: new Date().toISOString(),
+      },
+    );
+  }
+
+  async function handleClassify() {
+    if (!online || isClassifying) {
+      return;
+    }
+
+    setIsClassifying(true);
+    setNotice(null);
+
+    try {
+      const result = await classifyListItems(data.list.share_slug);
+      console.log("[classify] success, updated rows:", result);
+      await refetch();
+    } catch (error) {
+      console.error("[classify] client error:", error);
+      const detail = error instanceof Error ? error.message : String(error);
+      setNotice(`${t.classifyError}: ${detail}`);
+    } finally {
+      setIsClassifying(false);
+    }
+  }
+
+  async function handleSelectModel(model: ClassifierModel) {
+    if (model === data.list.classifier_model || savingModel) {
+      return;
+    }
+
+    const previous = queryClient.getQueryData<ListPayload>(queryKey) ?? data;
+    queryClient.setQueryData<ListPayload>(queryKey, {
+      ...previous,
+      list: { ...previous.list, classifier_model: model },
+    });
+
+    setSavingModel(true);
+    try {
+      await updateListSettings(data.list.id, { classifierModel: model });
+      await refetch();
+    } catch (error) {
+      queryClient.setQueryData(queryKey, previous);
+      setNotice(error instanceof Error ? error.message : t.saveSettingsError);
+    } finally {
+      setSavingModel(false);
+    }
+  }
+
+  async function handleMarkAllBought() {
+    if (busyBulk !== null) {
+      return;
+    }
+
+    if (activeItems.length === 0) {
+      setNotice(t.bulkArchiveEmpty);
+      return;
+    }
+
+    if (!window.confirm(t.bulkArchiveConfirm)) {
+      return;
+    }
+
+    const mutationId = crypto.randomUUID();
+    const deviceId = getDeviceId();
+    const previous = queryClient.getQueryData<ListPayload>(queryKey) ?? data;
+    const archivedAt = new Date().toISOString();
+
+    queryClient.setQueryData<ListPayload>(queryKey, {
+      ...previous,
+      items: previous.items.map((item) =>
+        item.status === "active" && item.deleted_at == null
+          ? { ...item, status: "archived", archived_at: archivedAt, _optimistic: true }
+          : item,
+      ),
+    });
+
+    setBusyBulk("archive");
+    try {
+      await bulkArchiveActiveItems({
+        listId: data.list.id,
+        deviceId,
+        mutationId,
+      });
+      await refetch();
+      setNotice(t.bulkArchiveDone);
+    } catch (error) {
+      queryClient.setQueryData(queryKey, previous);
+      setNotice(error instanceof Error ? error.message : t.bulkError);
+    } finally {
+      setBusyBulk(null);
+    }
+  }
+
+  async function handleMarkAllNotBought() {
+    if (busyBulk !== null) {
+      return;
+    }
+
+    if (archivedItems.length === 0) {
+      setNotice(t.bulkRestoreEmpty);
+      return;
+    }
+
+    if (!window.confirm(t.bulkRestoreConfirm)) {
+      return;
+    }
+
+    const mutationId = crypto.randomUUID();
+    const deviceId = getDeviceId();
+    const previous = queryClient.getQueryData<ListPayload>(queryKey) ?? data;
+    const baseSort = Math.max(0, ...previous.items.map((item) => item.sort_index));
+    let offset = 0;
+
+    queryClient.setQueryData<ListPayload>(queryKey, {
+      ...previous,
+      items: previous.items.map((item) => {
+        if (item.status !== "archived" || item.deleted_at != null) {
+          return item;
+        }
+
+        offset += 1;
+        return {
+          ...item,
+          status: "active",
+          archived_at: null,
+          sort_index: baseSort + offset,
+          _optimistic: true,
+        };
+      }),
+    });
+
+    setBusyBulk("restore");
+    try {
+      await bulkRestoreArchivedItems({
+        listId: data.list.id,
+        deviceId,
+        mutationId,
+      });
+      await refetch();
+      setNotice(t.bulkRestoreDone);
+    } catch (error) {
+      queryClient.setQueryData(queryKey, previous);
+      setNotice(error instanceof Error ? error.message : t.bulkError);
+    } finally {
+      setBusyBulk(null);
+    }
+  }
+
+  function handleSortModeChange(next: SortMode) {
+    setSortMode(next);
+    window.localStorage.setItem(sortStorageKey, next);
+  }
+
   return (
     <div dir={getDirection(locale)} className="page-shell">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 py-5 pb-32 sm:px-8">
@@ -414,6 +666,14 @@ export function ListClient({ initialData }: ListClientProps) {
                 </Link>
                 <button type="button" className="icon-button" onClick={handleLocaleToggle}>
                   {locale === "en" ? "עב" : "EN"}
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => setSettingsOpen(true)}
+                  aria-label={t.settings}
+                >
+                  <Settings className="h-4 w-4" />
                 </button>
                 <button type="button" className="btn-secondary" onClick={handleCopyLink}>
                   <Copy className="h-4 w-4" />
@@ -505,13 +765,24 @@ export function ListClient({ initialData }: ListClientProps) {
               <span className="text-sm text-ink/52">{activeItems.length}</span>
             </div>
 
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+              <ClassifyButton
+                activeItems={activeItems}
+                online={online}
+                isClassifying={isClassifying}
+                locale={locale}
+                onClick={handleClassify}
+              />
+              <SortToggle value={sortMode} locale={locale} onChange={handleSortModeChange} />
+            </div>
+
             {activeItems.length === 0 ? (
               <div className="paper-panel p-8 text-center text-sm text-ink/64">
                 {t.emptyList}
               </div>
             ) : (
               <div className="space-y-3">
-                {activeItems.map((item) => (
+                {displayItems.map((item) => (
                   <ItemRow
                     key={item.id}
                     locale={locale}
@@ -520,6 +791,7 @@ export function ListClient({ initialData }: ListClientProps) {
                     onArchive={handleArchiveItem}
                     onRestore={handleRestoreItem}
                     onDelete={handleDeleteItem}
+                    onPickCategory={handlePickCategory}
                   />
                 ))}
               </div>
@@ -553,6 +825,7 @@ export function ListClient({ initialData }: ListClientProps) {
                       onArchive={handleArchiveItem}
                       onRestore={handleRestoreItem}
                       onDelete={handleDeleteItem}
+                      onPickCategory={handlePickCategory}
                     />
                   ))
                 )}
@@ -576,6 +849,20 @@ export function ListClient({ initialData }: ListClientProps) {
           ) : null}
         </main>
       </div>
+
+      <SettingsSheet
+        open={settingsOpen}
+        locale={locale}
+        classifierModel={data.list.classifier_model ?? "smart"}
+        savingModel={savingModel}
+        activeCount={activeItems.length}
+        archivedCount={archivedItems.length}
+        busyBulk={busyBulk}
+        onClose={() => setSettingsOpen(false)}
+        onSelectModel={handleSelectModel}
+        onMarkAllBought={handleMarkAllBought}
+        onMarkAllNotBought={handleMarkAllNotBought}
+      />
     </div>
   );
 }

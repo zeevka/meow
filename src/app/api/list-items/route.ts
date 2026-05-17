@@ -43,12 +43,22 @@ const deleteSchema = z.object({
   mutationId: z.string().uuid(),
 });
 
+const setCategorySchema = z.object({
+  action: z.literal("setCategory"),
+  itemId: z.string().uuid(),
+  category: z.string().nullable(),
+  customLabel: z.string().max(24).nullable(),
+  deviceId: z.string(),
+  mutationId: z.string().uuid(),
+});
+
 const schema = z.discriminatedUnion("action", [
   addSchema,
   renameSchema,
   archiveSchema,
   restoreSchema,
   deleteSchema,
+  setCategorySchema,
 ]);
 
 export async function POST(request: Request) {
@@ -97,6 +107,16 @@ export async function POST(request: Request) {
         return NextResponse.json(
           await runSessionRpc("delete_list_item_with_session", {
             p_item_id: body.itemId,
+            p_device_id: body.deviceId,
+            p_mutation_id: body.mutationId,
+          }),
+        );
+      case "setCategory":
+        return NextResponse.json(
+          await runSessionRpc("update_list_item_category_with_session", {
+            p_item_id: body.itemId,
+            p_category: body.category,
+            p_custom_label: body.customLabel,
             p_device_id: body.deviceId,
             p_mutation_id: body.mutationId,
           }),

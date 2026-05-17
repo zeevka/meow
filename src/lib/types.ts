@@ -2,6 +2,8 @@ import type { AppLocale } from "@/lib/i18n";
 
 export type ItemStatus = "active" | "archived";
 export type ListRole = "owner" | "editor";
+export type ClassifierModel = "fast" | "smart" | "think";
+export const classifierModels = ["fast", "smart", "think"] as const;
 
 export type Viewer = {
   id: string;
@@ -23,6 +25,7 @@ export type ListRecord = {
   title: string;
   share_slug: string;
   is_link_sharing_enabled: boolean;
+  classifier_model: ClassifierModel;
   created_at: string;
   updated_at: string;
 };
@@ -41,6 +44,9 @@ export type ListItemRecord = {
   list_id: string;
   name: string;
   normalized_name: string;
+  category: string | null;
+  custom_category_label: string | null;
+  category_source: "ai" | "manual" | null;
   status: ItemStatus;
   sort_index: number;
   created_by: string;
@@ -100,6 +106,17 @@ export type OfflineMutation =
   | {
       id: string;
       shareSlug: string;
+      kind: "setCategory";
+      itemId: string;
+      category: string | null;
+      customLabel: string | null;
+      deviceId: string;
+      mutationId: string;
+      createdAt: string;
+    }
+  | {
+      id: string;
+      shareSlug: string;
       kind: "archive" | "delete";
       itemId: string;
       deviceId: string;
@@ -116,4 +133,3 @@ export type OfflineMutation =
       mutationId: string;
       createdAt: string;
     };
-

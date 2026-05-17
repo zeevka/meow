@@ -3,6 +3,7 @@
 import { Check, PencilLine, Trash2, Undo2 } from "lucide-react";
 import { useState } from "react";
 
+import { CategoryChip } from "@/components/lists/category-chip";
 import { copy, type AppLocale } from "@/lib/i18n";
 import type { ListItemRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,7 @@ type ItemRowProps = {
   onArchive: (itemId: string) => Promise<void> | void;
   onRestore: (itemId: string) => Promise<void> | void;
   onDelete: (itemId: string) => Promise<void> | void;
+  onPickCategory: (itemId: string, category: string | null) => Promise<void> | void;
 };
 
 export function ItemRow({
@@ -23,6 +25,7 @@ export function ItemRow({
   onArchive,
   onRestore,
   onDelete,
+  onPickCategory,
 }: ItemRowProps) {
   const t = copy[locale];
   const [editing, setEditing] = useState(false);
@@ -120,6 +123,11 @@ export function ItemRow({
               ) : null}
             </button>
           )}
+          <CategoryChip
+            item={item}
+            locale={locale}
+            onPick={(category) => onPickCategory(item.id, category)}
+          />
         </div>
 
         <div className="hidden items-center gap-2 sm:flex">
@@ -144,4 +152,3 @@ export function ItemRow({
     </div>
   );
 }
-

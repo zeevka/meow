@@ -1,6 +1,7 @@
 import { apiJson } from "@/lib/http";
 import { normalizeProductName } from "@/lib/normalize";
 import type {
+  ClassifierModel,
   ListItemRecord,
   ListPayload,
   ListRecord,
@@ -28,6 +29,47 @@ export async function renameList(listId: string, title: string) {
   return apiJson<ListRecord>(`/api/lists/${listId}`, {
     method: "PATCH",
     body: JSON.stringify({ title }),
+  });
+}
+
+export async function updateListSettings(
+  listId: string,
+  settings: { classifierModel: ClassifierModel },
+) {
+  return apiJson<ListRecord>(`/api/lists/${listId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      action: "settings",
+      classifierModel: settings.classifierModel,
+    }),
+  });
+}
+
+export async function bulkArchiveActiveItems(params: {
+  listId: string;
+  deviceId: string;
+  mutationId: string;
+}) {
+  return apiJson<{ updated: ListItemRecord[] }>("/api/list-items/bulk", {
+    method: "POST",
+    body: JSON.stringify({
+      action: "archiveAll",
+      ...params,
+    }),
+  });
+}
+
+export async function bulkRestoreArchivedItems(params: {
+  listId: string;
+  deviceId: string;
+  mutationId: string;
+}) {
+  return apiJson<{ updated: ListItemRecord[] }>("/api/list-items/bulk", {
+    method: "POST",
+    body: JSON.stringify({
+      action: "restoreAll",
+      ...params,
+    }),
   });
 }
 
@@ -113,6 +155,29 @@ export async function deleteListItem(params: {
   });
 }
 
+export async function setItemCategory(params: {
+  itemId: string;
+  category: string | null;
+  customLabel: string | null;
+  deviceId: string;
+  mutationId: string;
+}) {
+  return apiJson<ListItemRecord>("/api/list-items", {
+    method: "POST",
+    body: JSON.stringify({
+      action: "setCategory",
+      ...params,
+    }),
+  });
+}
+
+export async function classifyListItems(shareSlug: string) {
+  return apiJson<{ updated: ListItemRecord[] }>("/api/list-items/classify", {
+    method: "POST",
+    body: JSON.stringify({ shareSlug }),
+  });
+}
+
 export async function replayOfflineMutation(mutation: OfflineMutation) {
   switch (mutation.kind) {
     case "add":
@@ -150,6 +215,14 @@ export async function replayOfflineMutation(mutation: OfflineMutation) {
         deviceId: mutation.deviceId,
         mutationId: mutation.mutationId,
       });
+    case "setCategory":
+      return setItemCategory({
+        itemId: mutation.itemId,
+        category: mutation.category,
+        customLabel: mutation.customLabel,
+        deviceId: mutation.deviceId,
+        mutationId: mutation.mutationId,
+      });
   }
 }
 
@@ -171,6 +244,9 @@ export function applyOptimisticAdd(
     list_id: payload.list.id,
     name: params.name,
     normalized_name: normalizeProductName(params.name),
+    category: null,
+    custom_category_label: null,
+    category_source: null,
     status: "active",
     sort_index: params.sortIndex,
     created_by: params.viewerId,
