@@ -1,6 +1,6 @@
 import type { AppLocale } from "@/lib/i18n";
 
-export type ItemStatus = "active" | "archived";
+export type ItemStatus = "active" | "in_cart" | "archived";
 export type ListRole = "owner" | "editor";
 export type ClassifierModel = "fast" | "smart" | "think";
 export const classifierModels = ["fast", "smart", "think"] as const;
@@ -25,6 +25,7 @@ export type ListRecord = {
   title: string;
   share_slug: string;
   is_link_sharing_enabled: boolean;
+  shopping_mode_enabled: boolean;
   classifier_model: ClassifierModel;
   created_at: string;
   updated_at: string;
@@ -72,12 +73,24 @@ export type DashboardPayload = {
   lists: DashboardListRecord[];
 };
 
+export type ListCategoryRecord = {
+  id: string;
+  list_id: string;
+  label: string;
+  color: string;
+  sort_index: number;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
 export type ListPayload = {
   profile: ProfileRecord | null;
   viewer: Viewer;
   list: ListRecord;
   members: MemberRecord[];
   items: ListItemRecord[];
+  categories: ListCategoryRecord[];
 };
 
 export type OfflineMutation =
@@ -110,6 +123,31 @@ export type OfflineMutation =
       itemId: string;
       category: string | null;
       customLabel: string | null;
+      deviceId: string;
+      mutationId: string;
+      createdAt: string;
+    }
+  | {
+      id: string;
+      shareSlug: string;
+      kind: "startShopping";
+      listId: string;
+      createdAt: string;
+    }
+  | {
+      id: string;
+      shareSlug: string;
+      kind: "finishShopping";
+      listId: string;
+      deviceId: string;
+      mutationId: string;
+      createdAt: string;
+    }
+  | {
+      id: string;
+      shareSlug: string;
+      kind: "markInCart";
+      itemId: string;
       deviceId: string;
       mutationId: string;
       createdAt: string;

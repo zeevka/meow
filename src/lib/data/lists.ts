@@ -2,6 +2,7 @@ import { apiJson } from "@/lib/http";
 import { normalizeProductName } from "@/lib/normalize";
 import type {
   ClassifierModel,
+  ListCategoryRecord,
   ListItemRecord,
   ListPayload,
   ListRecord,
@@ -41,6 +42,32 @@ export async function updateListSettings(
     body: JSON.stringify({
       action: "settings",
       classifierModel: settings.classifierModel,
+    }),
+  });
+}
+
+export async function startShopping(listId: string) {
+  return apiJson<ListRecord>(`/api/lists/${listId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      action: "shoppingMode",
+      state: "start",
+    }),
+  });
+}
+
+export async function finishShopping(params: {
+  listId: string;
+  deviceId: string;
+  mutationId: string;
+}) {
+  return apiJson<ListRecord>(`/api/lists/${params.listId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      action: "shoppingMode",
+      state: "finish",
+      deviceId: params.deviceId,
+      mutationId: params.mutationId,
     }),
   });
 }
@@ -126,6 +153,20 @@ export async function archiveListItem(params: {
   });
 }
 
+export async function markItemInCart(params: {
+  itemId: string;
+  deviceId: string;
+  mutationId: string;
+}) {
+  return apiJson<ListItemRecord>("/api/list-items", {
+    method: "POST",
+    body: JSON.stringify({
+      action: "markInCart",
+      ...params,
+    }),
+  });
+}
+
 export async function restoreArchivedItem(params: {
   itemId: string;
   sortIndex: number;
@@ -171,6 +212,33 @@ export async function setItemCategory(params: {
   });
 }
 
+export async function createListCategory(
+  listId: string,
+  params: { label: string; color: string },
+) {
+  return apiJson<ListCategoryRecord>(`/api/lists/${listId}/categories`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function renameListCategory(
+  listId: string,
+  categoryId: string,
+  params: { label?: string; color?: string },
+) {
+  return apiJson<ListCategoryRecord>(`/api/lists/${listId}/categories/${categoryId}`, {
+    method: "PATCH",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function deleteListCategory(listId: string, categoryId: string) {
+  return apiJson<{ id: string }>(`/api/lists/${listId}/categories/${categoryId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function clearListItemCategories(shareSlug: string) {
   return apiJson<{ updated: ListItemRecord[] }>("/api/list-items/clear-categories", {
     method: "POST",
@@ -200,6 +268,20 @@ export async function replayOfflineMutation(mutation: OfflineMutation) {
       return updateListItemName({
         itemId: mutation.itemId,
         name: mutation.name,
+        deviceId: mutation.deviceId,
+        mutationId: mutation.mutationId,
+      });
+    case "startShopping":
+      return startShopping(mutation.listId);
+    case "finishShopping":
+      return finishShopping({
+        listId: mutation.listId,
+        deviceId: mutation.deviceId,
+        mutationId: mutation.mutationId,
+      });
+    case "markInCart":
+      return markItemInCart({
+        itemId: mutation.itemId,
         deviceId: mutation.deviceId,
         mutationId: mutation.mutationId,
       });

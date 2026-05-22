@@ -28,6 +28,13 @@ const archiveSchema = z.object({
   mutationId: z.string().uuid(),
 });
 
+const markInCartSchema = z.object({
+  action: z.literal("markInCart"),
+  itemId: z.string().uuid(),
+  deviceId: z.string(),
+  mutationId: z.string().uuid(),
+});
+
 const restoreSchema = z.object({
   action: z.literal("restore"),
   itemId: z.string().uuid(),
@@ -56,6 +63,7 @@ const schema = z.discriminatedUnion("action", [
   addSchema,
   renameSchema,
   archiveSchema,
+  markInCartSchema,
   restoreSchema,
   deleteSchema,
   setCategorySchema,
@@ -89,6 +97,14 @@ export async function POST(request: Request) {
       case "archive":
         return NextResponse.json(
           await runSessionRpc("archive_list_item_with_session", {
+            p_item_id: body.itemId,
+            p_device_id: body.deviceId,
+            p_mutation_id: body.mutationId,
+          }),
+        );
+      case "markInCart":
+        return NextResponse.json(
+          await runSessionRpc("set_list_item_in_cart_with_session", {
             p_item_id: body.itemId,
             p_device_id: body.deviceId,
             p_mutation_id: body.mutationId,

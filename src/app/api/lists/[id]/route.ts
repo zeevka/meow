@@ -8,6 +8,13 @@ const settingsSchema = z.object({
   classifierModel: z.enum(["fast", "smart", "think"]),
 });
 
+const shoppingSchema = z.object({
+  action: z.literal("shoppingMode"),
+  state: z.enum(["start", "finish"]),
+  deviceId: z.string().optional(),
+  mutationId: z.string().uuid().optional(),
+});
+
 const renameSchema = z.object({
   title: z.string().min(1),
 });
@@ -61,6 +68,28 @@ export async function PATCH(request: Request, { params }: RouteProps) {
       return NextResponse.json(list);
     }
 
+    if (
+      body &&
+      typeof body === "object" &&
+      (body as { action?: unknown }).action === "shoppingMode"
+    ) {
+      const parsed = shoppingSchema.parse(body);
+
+      if (parsed.state === "start") {
+        const list = await runSessionRpc("start_shopping_with_session", {
+          p_list_id: id,
+        });
+        return NextResponse.json(list);
+      }
+
+      const list = await runSessionRpc("finish_shopping_with_session", {
+        p_list_id: id,
+        p_device_id: parsed.deviceId ?? "server-device",
+        p_mutation_id: parsed.mutationId ?? crypto.randomUUID(),
+      });
+      return NextResponse.json(list);
+    }
+
     const parsed = renameSchema.parse(body);
     const list = await runSessionRpc("rename_list_with_session", {
       p_list_id: id,
@@ -76,4 +105,3 @@ export async function PATCH(request: Request, { params }: RouteProps) {
     );
   }
 }
-

@@ -5,12 +5,13 @@ import { useState } from "react";
 
 import { CategoryChip } from "@/components/lists/category-chip";
 import { copy, type AppLocale } from "@/lib/i18n";
-import type { ListItemRecord } from "@/lib/types";
+import type { ListCategoryRecord, ListItemRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type ItemRowProps = {
   locale: AppLocale;
   item: ListItemRecord;
+  customCategories: ListCategoryRecord[];
   onRename: (itemId: string, name: string) => Promise<void> | void;
   onArchive: (itemId: string) => Promise<void> | void;
   onRestore: (itemId: string) => Promise<void> | void;
@@ -21,6 +22,7 @@ type ItemRowProps = {
 export function ItemRow({
   locale,
   item,
+  customCategories,
   onRename,
   onArchive,
   onRestore,
@@ -34,6 +36,8 @@ export function ItemRow({
   const [pointerStart, setPointerStart] = useState<number | null>(null);
 
   const isArchived = item.status === "archived";
+  const isInCart = item.status === "in_cart";
+  const isUndoState = isArchived || isInCart;
 
   return (
     <div className="relative overflow-hidden rounded-[24px]">
@@ -47,6 +51,7 @@ export function ItemRow({
         className={cn(
           "flex items-center gap-3 rounded-[24px] border border-olive/10 bg-white px-4 py-3 transition",
           isArchived && "opacity-80",
+          isInCart && "border-herb/18 bg-herb/5",
         )}
         style={{ transform: `translateX(${translateX}px)` }}
         onPointerDown={(event) => {
@@ -77,15 +82,17 @@ export function ItemRow({
       >
         <button
           type="button"
-          onClick={() => (isArchived ? onRestore(item.id) : onArchive(item.id))}
+          onClick={() => (isUndoState ? onRestore(item.id) : onArchive(item.id))}
           className={cn(
             "flex h-11 w-11 items-center justify-center rounded-full border transition",
             isArchived
               ? "border-herb/25 bg-herb/10 text-herb"
+              : isInCart
+              ? "border-herb/20 bg-herb/10 text-herb hover:bg-herb/16"
               : "border-olive/18 bg-paper text-olive hover:bg-herb/12 hover:text-herb",
           )}
         >
-          {isArchived ? <Undo2 className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+          {isUndoState ? <Undo2 className="h-4 w-4" /> : <Check className="h-4 w-4" />}
         </button>
 
         <div className="min-w-0 flex-1">
@@ -114,6 +121,7 @@ export function ItemRow({
                 className={cn(
                   "truncate text-base text-ink transition",
                   isArchived && "text-ink/50 line-through",
+                  isInCart && "text-ink/70 line-through",
                 )}
               >
                 {item.name}
@@ -126,6 +134,7 @@ export function ItemRow({
           <CategoryChip
             item={item}
             locale={locale}
+            customCategories={customCategories}
             onPick={(category) => onPickCategory(item.id, category)}
           />
         </div>

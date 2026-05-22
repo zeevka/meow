@@ -19,7 +19,7 @@ import { Composer } from "@/components/lists/composer";
 import { ItemRow } from "@/components/lists/item-row";
 import { SettingsSheet } from "@/components/lists/settings-sheet";
 import { SortToggle, type SortMode } from "@/components/lists/sort-toggle";
-import { CATEGORY_SLUGS } from "@/lib/categories";
+import { CATEGORY_SLUGS, DEFAULT_CUSTOM_CATEGORY_COLOR } from "@/lib/categories";
 import {
   addListItem,
   applyOptimisticAdd,
@@ -29,13 +29,19 @@ import {
   bulkRestoreArchivedItems,
   classifyListItems,
   clearListItemCategories,
+  createListCategory,
+  finishShopping,
+  deleteListCategory,
+  renameListCategory,
   deleteListItem,
   fetchListPayloadBySlug,
   listQueryKey,
+  markItemInCart,
   renameList,
   replayOfflineMutation,
   restoreArchivedItem,
   setItemCategory,
+  startShopping,
   updateListItemName,
   updateListSettings,
   updateProfileLocale,
@@ -67,6 +73,7 @@ export function ListClient({ initialData }: ListClientProps) {
   const [copied, setCopied] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [cartOpen, setCartOpen] = useState(true);
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("time");
@@ -74,6 +81,9 @@ export function ListClient({ initialData }: ListClientProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
   const [busyBulk, setBusyBulk] = useState<"archive" | "restore" | "clear" | null>(null);
+  const [busyShopping, setBusyShopping] = useState<"start" | "finish" | null>(null);
+  const [busyCategoryId, setBusyCategoryId] = useState<string | null>(null);
+  const [busyCreateCategory, setBusyCreateCategory] = useState(false);
   const [online, setOnline] = useState(
     typeof window === "undefined" ? true : window.navigator.onLine,
   );
@@ -85,13 +95,20 @@ export function ListClient({ initialData }: ListClientProps) {
     queryKey: listQueryKey(initialData.list.share_slug),
     initialData,
     queryFn: async () => fetchListPayloadBySlug(initialData.list.share_slug),
-    refetchInterval: 5000,
+    refetchInterval: (query) => {
+      const payload = query.state.data as ListPayload | undefined;
+      return payload?.list.shopping_mode_enabled ? 2000 : 5000;
+    },
   });
 
   const locale: AppLocale = data.profile?.locale === "he" ? "he" : "en";
   const t = copy[locale];
   const queryKey = listQueryKey(data.list.share_slug);
+  const shoppingMode = data.list.shopping_mode_enabled;
   const activeItems = data.items.filter((item) => item.status === "active");
+  const cartItems = [...data.items]
+    .filter((item) => item.status === "in_cart")
+    .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
   const displayItems = useMemo(() => {
     if (sortMode === "time") {
       return [...activeItems].sort((left, right) => left.sort_index - right.sort_index);
@@ -138,6 +155,7 @@ export function ListClient({ initialData }: ListClientProps) {
       item.category != null &&
       item.category_source === "ai",
   ).length;
+  const customCategories = data.categories ?? [];
 
   useEffect(() => {
     const fromStorage = window.localStorage.getItem(sortStorageKey);
@@ -240,7 +258,7 @@ export function ListClient({ initialData }: ListClientProps) {
       return;
     }
 
-    const activeDuplicate = activeItems.find(
+    const activeDuplicate = [...activeItems, ...cartItems].find(
       (item) => item.normalized_name === normalized,
     );
 
@@ -354,6 +372,57 @@ export function ListClient({ initialData }: ListClientProps) {
     );
   }
 
+  async function handleMarkInCart(itemId: string) {
+    const mutationId = crypto.randomUUID();
+    const deviceId = getDeviceId();
+
+    await runQueuedMutation(
+      (current) =>
+        applyOptimisticItemChange(current, itemId, (item) => ({
+          ...item,
+          status: "in_cart",
+          archived_at: null,
+          updated_at: new Date().toISOString(),
+          _optimistic: true,
+          _queued: !online,
+        })),
+      () =>
+        markItemInCart({
+          itemId,
+          deviceId,
+          mutationId,
+        }),
+      {
+        id: crypto.randomUUID(),
+        shareSlug: data.list.share_slug,
+        kind: "markInCart",
+        itemId,
+        deviceId,
+        mutationId,
+        createdAt: new Date().toISOString(),
+      },
+    );
+  }
+
+  async function handleItemToggle(itemId: string) {
+    const item = data.items.find((entry) => entry.id === itemId);
+    if (!item) {
+      return;
+    }
+
+    if (item.status === "archived" || item.status === "in_cart") {
+      await handleRestoreItem(item);
+      return;
+    }
+
+    if (shoppingMode) {
+      await handleMarkInCart(item.id);
+      return;
+    }
+
+    await handleArchiveItem(item.id);
+  }
+
   async function handleRestoreItem(itemOrId: string | ListItemRecord) {
     const item = typeof itemOrId === "string"
       ? data.items.find((entry) => entry.id === itemOrId)
@@ -363,7 +432,7 @@ export function ListClient({ initialData }: ListClientProps) {
       return;
     }
 
-    const duplicateActive = activeItems.find(
+    const duplicateActive = [...activeItems, ...cartItems].find(
       (entry) =>
         entry.id !== item.id &&
         entry.normalized_name === normalizeProductName(item.name),
@@ -556,6 +625,90 @@ export function ListClient({ initialData }: ListClientProps) {
     }
   }
 
+  async function handleStartShopping() {
+    if (shoppingMode || busyShopping !== null) {
+      return;
+    }
+
+    setBusyShopping("start");
+    try {
+      await runQueuedMutation(
+        (current) => ({
+          ...current,
+          list: { ...current.list, shopping_mode_enabled: true },
+        }),
+        () => startShopping(data.list.id),
+        {
+          id: crypto.randomUUID(),
+          shareSlug: data.list.share_slug,
+          kind: "startShopping",
+          listId: data.list.id,
+          createdAt: new Date().toISOString(),
+        },
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : t.bulkError);
+    } finally {
+      setBusyShopping(null);
+    }
+  }
+
+  async function handleFinishShopping() {
+    if (!shoppingMode || busyShopping !== null) {
+      return;
+    }
+
+    if (!window.confirm(t.finishShoppingConfirm)) {
+      return;
+    }
+
+    const mutationId = crypto.randomUUID();
+    const deviceId = getDeviceId();
+
+    setBusyShopping("finish");
+    try {
+      await runQueuedMutation(
+        (current) => {
+          const archivedAt = new Date().toISOString();
+          return {
+            ...current,
+            list: { ...current.list, shopping_mode_enabled: false },
+            items: current.items.map((item) =>
+              item.status === "in_cart" && item.deleted_at == null
+                ? {
+                    ...item,
+                    status: "archived",
+                    archived_at: archivedAt,
+                    _optimistic: true,
+                    _queued: !online,
+                  }
+                : item,
+            ),
+          };
+        },
+        () =>
+          finishShopping({
+            listId: data.list.id,
+            deviceId,
+            mutationId,
+          }),
+        {
+          id: crypto.randomUUID(),
+          shareSlug: data.list.share_slug,
+          kind: "finishShopping",
+          listId: data.list.id,
+          deviceId,
+          mutationId,
+          createdAt: new Date().toISOString(),
+        },
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : t.bulkError);
+    } finally {
+      setBusyShopping(null);
+    }
+  }
+
   async function handleMarkAllBought() {
     if (busyBulk !== null) {
       return;
@@ -701,6 +854,51 @@ export function ListClient({ initialData }: ListClientProps) {
     }
   }
 
+  async function handleCreateCategory(label: string, color: string) {
+    if (busyCreateCategory) return;
+    setBusyCreateCategory(true);
+    try {
+      await createListCategory(data.list.id, {
+        label,
+        color: color || DEFAULT_CUSTOM_CATEGORY_COLOR,
+      });
+      await refetch();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : t.categoryError);
+    } finally {
+      setBusyCreateCategory(false);
+    }
+  }
+
+  async function handleRenameCategory(
+    categoryId: string,
+    updates: { label?: string; color?: string },
+  ) {
+    if (busyCategoryId !== null) return;
+    setBusyCategoryId(categoryId);
+    try {
+      await renameListCategory(data.list.id, categoryId, updates);
+      await refetch();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : t.categoryError);
+    } finally {
+      setBusyCategoryId(null);
+    }
+  }
+
+  async function handleDeleteCategory(categoryId: string) {
+    if (busyCategoryId !== null) return;
+    setBusyCategoryId(categoryId);
+    try {
+      await deleteListCategory(data.list.id, categoryId);
+      await refetch();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : t.categoryError);
+    } finally {
+      setBusyCategoryId(null);
+    }
+  }
+
   function handleSortModeChange(next: SortMode) {
     setSortMode(next);
     window.localStorage.setItem(sortStorageKey, next);
@@ -731,6 +929,16 @@ export function ListClient({ initialData }: ListClientProps) {
                   <Copy className="h-4 w-4" />
                   {copied ? t.copied : t.shareList}
                 </button>
+                {!shoppingMode ? (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => void handleStartShopping()}
+                    disabled={busyShopping === "start"}
+                  >
+                    {t.startShopping}
+                  </button>
+                ) : null}
               </div>
 
               <div className="min-w-0 sm:order-1 sm:flex-1">
@@ -809,6 +1017,12 @@ export function ListClient({ initialData }: ListClientProps) {
                 </span>
               ) : null}
             </div>
+
+            {shoppingMode ? (
+              <div className="mt-4 rounded-full border border-herb/22 bg-herb/10 px-4 py-2 text-xs font-medium text-herb">
+                {t.shoppingBadge}
+              </div>
+            ) : null}
           </section>
 
           <section className="mt-4 space-y-4">
@@ -839,8 +1053,9 @@ export function ListClient({ initialData }: ListClientProps) {
                     key={item.id}
                     locale={locale}
                     item={item}
+                    customCategories={customCategories}
                     onRename={handleRenameItem}
-                    onArchive={handleArchiveItem}
+                    onArchive={handleItemToggle}
                     onRestore={handleRestoreItem}
                     onDelete={handleDeleteItem}
                     onPickCategory={handlePickCategory}
@@ -849,6 +1064,45 @@ export function ListClient({ initialData }: ListClientProps) {
               </div>
             )}
           </section>
+
+          {shoppingMode || cartItems.length > 0 ? (
+            <section className="mt-6 space-y-3">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between rounded-[26px] border border-olive/14 bg-paper/66 px-5 py-4 text-start"
+                onClick={() => setCartOpen((current) => !current)}
+              >
+                <span className="section-title">{t.cartItems}</span>
+                <span className="text-sm text-ink/52">{cartItems.length}</span>
+              </button>
+
+              {cartOpen ? (
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    className="btn-primary w-full"
+                    onClick={() => void handleFinishShopping()}
+                    disabled={busyShopping === "finish"}
+                  >
+                    {t.finishShopping}
+                  </button>
+                  {cartItems.map((item) => (
+                    <ItemRow
+                      key={item.id}
+                      locale={locale}
+                      item={item}
+                      customCategories={customCategories}
+                      onRename={handleRenameItem}
+                      onArchive={handleItemToggle}
+                      onRestore={handleRestoreItem}
+                      onDelete={handleDeleteItem}
+                      onPickCategory={handlePickCategory}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
 
           <section className="mt-6 space-y-3">
             <button
@@ -873,8 +1127,9 @@ export function ListClient({ initialData }: ListClientProps) {
                       key={item.id}
                       locale={locale}
                       item={item}
+                      customCategories={customCategories}
                       onRename={handleRenameItem}
-                      onArchive={handleArchiveItem}
+                      onArchive={handleItemToggle}
                       onRestore={handleRestoreItem}
                       onDelete={handleDeleteItem}
                       onPickCategory={handlePickCategory}
@@ -911,11 +1166,17 @@ export function ListClient({ initialData }: ListClientProps) {
         archivedCount={archivedItems.length}
         aiCategorizedCount={aiCategorizedCount}
         busyBulk={busyBulk}
+        customCategories={customCategories}
+        busyCategoryId={busyCategoryId}
+        busyCreateCategory={busyCreateCategory}
         onClose={() => setSettingsOpen(false)}
         onSelectModel={handleSelectModel}
         onMarkAllBought={handleMarkAllBought}
         onMarkAllNotBought={handleMarkAllNotBought}
         onClearCategories={handleClearCategories}
+        onCreateCategory={handleCreateCategory}
+        onRenameCategory={handleRenameCategory}
+        onDeleteCategory={handleDeleteCategory}
       />
     </div>
   );

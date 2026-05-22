@@ -30,6 +30,7 @@ const classifierOutputSchema = z.object({
 async function callNvidiaClassifier(
   names: string[],
   modelChoice: ClassifierModel,
+  customCategories: { id: string; label: string }[],
 ) {
   if (!process.env.NVIDIA_API_KEY) {
     console.error("[classify] NVIDIA_API_KEY is not set in process.env");
@@ -37,7 +38,7 @@ async function callNvidiaClassifier(
   }
 
   const indexedItems = names.map((name, i) => ({ i, name }));
-  const categoryDescriptions = [
+  const builtinDescriptions = [
     "dairy — EN: milk, cheese, yogurt, butter, cream, cottage / HE: חלב, גבינה, יוגורט, חמאה, שמנת, קוטג'",
     "produce — EN: fruits, vegetables, herbs, salad greens / HE: ירקות, פירות, עשבי תיבול, עגבניות, מלפפון, בצל, תפוחים, בננה, חסה, פטרוזיליה, לימון, גזר, תפוח אדמה",
     "bakery — EN: bread, pita, pastries, tortillas, buns, challah / HE: לחם, פיתה, פיתות, חלה, מאפים, רוגלעך, בורקס, בייגלה, לחמניות",
@@ -49,7 +50,11 @@ async function callNvidiaClassifier(
     "personal_care — EN: shampoo, conditioner, soap, toothpaste, deodorant, vitamins, makeup, diapers / HE: שמפו, מרכך שיער, סבון, משחת שיניים, מברשת שיניים, דאודורנט, ויטמינים, איפור, חיתולים",
     "snacks — EN: chips, cookies, candy, chocolate, crackers, popcorn, gum / HE: חטיף, חטיפים, ביסלי, במבה, צ'יפס, עוגיות, שוקולד, סוכריות, מסטיק, פופקורן",
     "other — use ONLY when none of the categories above truly fit (e.g. hardware tools, electronics, flowers, toys)",
-  ].join("\n");
+  ];
+  const customDescriptions = customCategories.map(
+    (cat) => `${cat.id} — User-defined category: "${cat.label}". Use this slug when an item clearly fits.`,
+  );
+  const categoryDescriptions = [...builtinDescriptions, ...customDescriptions].join("\n");
 
   const model = MODEL_MAP[modelChoice] ?? MODEL_MAP.smart;
   const isNemotron = model.includes("nemotron");
@@ -239,16 +244,23 @@ export async function POST(request: Request) {
         ? payload.list.classifier_model
         : "smart";
 
+    const customCategories = (payload.categories ?? []).map((cat) => ({
+      id: cat.id,
+      label: cat.label,
+    }));
+    const customCategoryIds = new Set(customCategories.map((cat) => cat.id));
+
     const classifications = await callNvidiaClassifier(
       unclassified.map((item) => item.name),
       modelChoice,
+      customCategories,
     );
 
     const updates = classifications.map((classification) => {
-      const isAllowed = CATEGORY_SLUGS.includes(classification.category as CategorySlug);
-      const category = isAllowed
-        ? (classification.category as CategorySlug)
-        : "other";
+      const raw = classification.category;
+      const isBuiltin = CATEGORY_SLUGS.includes(raw as CategorySlug);
+      const isCustom = customCategoryIds.has(raw);
+      const category = isBuiltin || isCustom ? raw : "other";
 
       return {
         id: unclassified[classification.i].id,
